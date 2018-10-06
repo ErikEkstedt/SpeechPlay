@@ -1,234 +1,149 @@
 import os
-import time
-from os.path import isdir, join
-from tqdm import tqdm
+from os.path import join, isdir
 import numpy as np
-from scipy.fftpack import fft
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+
 from scipy import signal
 from scipy.io import wavfile
 
-import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-from matplotlib import cm
-from matplotlib.ticker import LinearLocator, FormatStrFormatter
-
-import sounddevice as sd
+import torch
+from torch.utils.data import Dataset, DataLoader
 
 
-# Plot log-specgram
-def plot_log_spectrogram(freqs, times, spectrogram, sample_rate=16000, title='Log Spectrogram'):
+def plot_log_spectrogram(log_spec, dataclass=None, sample_rate=16000, title='Log Spectrogram'):
     fig = plt.figure(figsize=(14, 8))
-    ax1 = fig.add_subplot(211)
-    ax1.set_title('Wav')
-    ax1.set_ylabel('Amplitude')
-    ax1.plot(np.linspace(0, sample_rate/len(samples), sample_rate), samples)
-    ax2 = fig.add_subplot(212)
-    ax2.imshow(spectrogram, aspect='auto', origin='lower', 
-               extent=[times.min(), times.max(), freqs.min(), freqs.max()])
-    ax2.set_yticks(freqs[::16])
-    ax2.set_xticks(times[::16])
-    ax2.set_title(title)
-    ax2.set_ylabel('Freqs in Hz')
-    ax2.set_xlabel('Seconds')
-    plt.show()
-
-def play_sound(data_class='bird', idx=None, wav_path="data/train/audio"):
-    class_path = join(wav_path, data_class)
-    class_wavs = sorted([wav for wav in os.listdir(class_path)])
-    if idx:
-        sd.play(class_dir[idx])
-    else:
-        print('play all ', data_class)
-        for wavpath in class_wavs:
-            sr, samples = wavfile.read(join(class_path,wavpath))
-            sd.play(samples)
-            time.sleep(1)
-
-def plot_spec3d(spectrogram):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    X, Y = np.meshgrid(np.arange(spectrogram.shape[1]),
-                       np.arange(spectrogram.shape[0]))  # freq in rows, time in columns
-    surf = ax.plot_surface(X, Y, spectrogram,
-                           cmap=cm.coolwarm, linewidth=0, antialiased=False)
-    # Customize the z axis.
-    ax.set_zlim(spectrogram.min(), spectrogram.max())
-    ax.zaxis.set_major_locator(LinearLocator(10))
-    ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
-    # Add a color bar which maps values to colors.
-    fig.colorbar(surf, shrink=0.5, aspect=5)
-    ax.set_xlabel('X (cols)')
-    ax.set_ylabel('Y (rows)')
-    ax.set_zlabel('Z (values)')
-    plt.show()
-
-# Reconstruction
-
-def griffin_lim(spec):
-    # ability to listen to average spectrograms
-    pass
-
-
-def plot_means(means, rows=12):
-    rows = len(means.keys())
-    # plt.figure(figsize=(14, 4))  # size in inches
-    i = 1
-    for (k, v) in means.items():
-        print(k)
-        plt.subplot(rows, 2, i)
-        i +=1
-        plt.title('Mean fft of ' + k)
-        plt.plot(v['fft_mean'])
-        plt.grid()
-        plt.subplot(rows, 2, i)
-        i +=1
-        plt.title('Mean specgram of ' + k)
-        plt.imshow(v['spec_mean'].T, aspect='auto', origin='lower')
-        # extent=[times.min(), times.max(), freqs.min(), freqs.max()])
-        # plt.yticks(freqs[::16])
-        # plt.xticks(times[::16])
-    plt.tight_layout()
+    plt.title('Log Spectrogram ({})'.format(dataclass))
+    plt.imshow(log_spec.T, aspect='auto', origin='lower')
+    plt.xticks([])
+    plt.xlabel('Seconds')
+    plt.ylabel('Freqs in Hz')
+    plt.yticks([])
     plt.show()
 
 
-def demo():
-    train_audio_path = "/home/erik/Audio/tf-speech/data/train/audio/"
-    audio_file = join(train_audio_path, "yes/0a7c2a8d_nohash_0.wav")
-    sr, samples = wavfile.read(audio_file)  # 16kHz
-    sd.default.samplerate = sr
+# PyTorch Dataset 
+class WordClassificationDataset(Dataset):
+    def __init__(self,
+                 audio_path="data/train/audio",
+                 window_size=20,
+                 hop_len=10):
+        super(WordClassificationDataset, self).__init__()
 
-    # Extract spectrogram
-    freqs, times, spectrogram = log_specgram(samples, sr)
+        self.audio_path = audio_path
+        self.classes = [f for f in os.listdir(audio_path) 
+                        if isdir(os.path.join(audio_path, f))]
+        self.classes.sort() 
 
-    # Plot
-    plot_log_spectrogram(freqs, times, spectrogram)
-    plot_spec3d(spectrogram)
-
-    # Normalise 
-    spec_max = np.max(spectrogram, axis=0)
-    spec_min = np.min(spectrogram, axis=0)
-    spec_mean = np.mean(spectrogram, axis=0)
-    spec_std = np.std(spectrogram, axis=0)
-    spectrogram = (spectrogram - spec_mean) / spec_std
-
-    plot_spec3d(spectrogram)
-
-    number_of_recordings = []
-    for d in dirs:
-        waves = [f for f in os.listdir(join(train_audio_path, d)) if f.endswith('.wav')]
-        number_of_recordings.append(len(waves))
-
-    plt.bar(x=np.arange(len(dirs)), height=number_of_recordings)
-    plt.show()
-
-
-class dataset(object):
-    def __init__(self, train_audio_path="data/train/audio/",
-                 window_size=20, step_size=10):
-        self.train_audio_path = train_audio_path
-        self.classes = [f for f in os.listdir(train_audio_path) if isdir(join(train_audio_path, f))]
-        self.classes.sort()
+        # self.classes[1:] do not include background noise (broken sounds)
         self.classes = self.classes[1:]
+        self.num_classes = len(self.classes)
 
-        # creates self.means: dict
-        # self.means['class']['spec_mean'], self.means['class']['fft_mean']
-        # self._get_all_spec_fft_mean()  
+        self.class2idx = {}
+        self.idx2class = {}
 
         self.window_size = window_size
-        self.step_size = step_size
+        self.hop_len = hop_len
 
-    def log_spectrogram(self, audio, sample_rate, window_size=20, step_size=10, eps=1e-10):
-        nperseg = int(round(window_size * sample_rate / 1e3))
-        noverlap = int(round(step_size * sample_rate / 1e3))
-        freqs, times, spec = signal.spectrogram(audio,
-                                        fs=sample_rate,
-                                        window='hann',
-                                        nperseg=nperseg,
-                                        noverlap=noverlap,
-                                        detrend=False)
+        self.datapoints = self._datapoints()  # list of (dpath, label)
+
+    def _datapoints(self):
+        paths = []
+        exceptions = 0
+        for i, c in enumerate(self.classes):
+            self.class2idx[c] = i
+            self.idx2class[i] = c
+            folder_path = join(self.audio_path, c)
+            # wave_paths = [f for f in os.listdir(folder_path) if f.endswith('.wav')]
+            for f in os.listdir(folder_path):
+                if f.endswith('.wav'):
+                    fpath = join(folder_path, f)
+
+                    # Expensive check.
+                    sample_rate, samples = wavfile.read(fpath)
+                    if samples.shape[0] != 16000:
+                        exceptions += 1
+                        continue
+
+                    paths.append((fpath, i))
+        print('Total samples: {} ({} unused)'.format(len(paths), exceptions))
+        return paths
+
+    def get_random(self):
+        idx = int(torch.randint(0, len(self), (1,)).item())
+        return self[idx]
+
+    def log_spectrogram(self, samples, sample_rate, eps=1e-10):
+        nperseg = int(round(self.window_size * sample_rate / 1e3))
+        noverlap = int(round(self.hop_len * sample_rate / 1e3))
+        freqs, times, spec = signal.spectrogram(samples,
+                                                fs=sample_rate,
+                                                window='hann',
+                                                nperseg=nperseg,
+                                                noverlap=noverlap,
+                                                detrend=False)
         return freqs, times, np.log(spec.T.astype(np.float32) + eps)
 
-    def custom_fft(self, y, fs):
-        T = 1.0 / fs
-        fft_len = int(50 * fs / 1e3)
-        N = y.shape[0]
-        yf = fft(y, n=fft_len )
-        xf = np.linspace(0.0, 1.0/(2.0*T), N//2)
-        vals = 2.0/N * np.abs(yf[0:N//2])  # FFT is simmetrical, so we take just the first half
-        # FFT is also complex, to we take just the real part (abs)
-        return xf, vals
+    def __len__(self):
+        return len(self.datapoints)
 
-    def extract_mean_fft_spectrogram(self, _class, verbose=False):
-        fft_values = []
-        spectrograms = []
-        waves = [f for f in os.listdir(join(self.train_audio_path, _class)) if f.endswith('.wav')]
-        if verbose:
-            print('{}', _class)
-            print('samples: ', len(waves))
-        for wav in waves:
-            sample_rate, samples = wavfile.read(self.train_audio_path + _class + '/' + wav)
-            if samples.shape[0] != 16000:
-                continue
-            xf, vals = self.custom_fft(samples, 16000)
-            fft_values.append(vals)
-            freqs, times, spec = self.log_spectrogram(samples, 16000)
-            spectrograms.append(spec)
-        fft_values_mean = np.mean(np.array(fft_values), axis=0)
-        spectrograms_mean = np.mean(np.array(spectrograms), axis=0)
-        return spectrograms_mean, fft_values_mean
+    def onehot(self, idx):
+        onehot = np.zeros((self.num_classes,)).astype(np.float32)
+        onehot[idx] = 1
+        return onehot
 
-    def calc_means(self):
-        means = {}
-        for c in tqdm(self.classes, desc='Extracting means'):
-            spec_mean, fft_mean = self.extract_mean_fft_spectrogram(c)
-            means[c] = {'spec_mean': spec_mean, 'fft_mean': fft_mean}
-        self.means = means
+    def __getitem__(self, idx):
+        path, label = self.datapoints[idx]
+        filename = os.path.abspath(path)
+        sample_rate, samples = wavfile.read(filename)
+        _ , _, log_spec = self.log_spectrogram(samples, sample_rate)
+        samples = samples.astype(np.float32)
+        onehot = self.onehot(label)
+        # return {'samples': samples, 'log_spec': log_spec, 'label': label}
+        return [samples, log_spec, onehot]
 
-    def load_means(self):
-        self.means = np.load(join(self.train_audio_path, 'means.npy')).item()
 
-    def plot_mean(self, category='yes'):
-        mean = self.means[category]
-        plt.figure(figsize=(14,4))
-        plt.subplot(1, 2, 1)
-        plt.title('Mean fft of ' + category)
-        plt.plot(mean['fft_mean'])
-        plt.grid()
-        plt.subplot(1, 2, 2)
-        plt.title('Mean spectrogram of ' + category)
-        plt.imshow(mean['spec_mean'].T, aspect='auto', origin='lower',
-                   extent=[0, 1, 20, 8000])
-        plt.show()
+def collate_fn(batch):
+    samples, log_specs, labels = zip(*batch)
+    samples = torch.tensor(samples)
+    log_specs = torch.tensor(log_specs)
+    labels = torch.tensor(labels)
+    # return samples, log_specs, labels
+    return {'samples': samples, 'log_specs': log_specs, 'labels': labels}
 
-    def plot_mean3D(self, category='yes'):
-        spectrogram = self.means[category]['spec_mean']
-
-        fig = plt.figure(figsize=(10,10))
-        plt.suptitle('Average spectrogram: '+category)
-        ax = fig.add_subplot(111, projection='3d')
-        X, Y = np.meshgrid(np.arange(spectrogram.shape[0]),
-                           np.arange(spectrogram.shape[1]))  # freq in rows, time in columns
-        surf = ax.plot_surface(X, Y, spectrogram.T,
-                               cmap=cm.coolwarm, linewidth=0, antialiased=False)
-        # Customize the z axis.
-        ax.set_zlim(spectrogram.min(), spectrogram.max())
-        ax.zaxis.set_major_locator(LinearLocator(10))
-        ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
-        # Add a color bar which maps values to colors.
-        fig.colorbar(surf, shrink=0.5, aspect=5)
-        ax.set_xlabel('timesteps')
-        ax.set_ylabel('frequencies')
-        ax.set_zlabel('magnitude')
-        plt.show()
 
 
 if __name__ == "__main__":
-    dset = dataset()
-    dset.load_means()
-    # print(dset.means.keys())
 
-    dset.plot_mean('yes')
-    dset.plot_mean3D('yes')
+    print('\nCreate Dataset and DataLoader')
+    print('-----------------------------')
+    dset = WordClassificationDataset()
+
+    dloader = DataLoader(dset, collate_fn=collate_fn, batch_size=16, shuffle=True)
+
+    print('Number of datapoints: ', len(dset))
+    print('Number of classes: ', dset.num_classes)
+
+    print('\nSample Batch')
+    print('------------')
+    for d in dloader:
+        samples = d['samples']
+        log_specs = d['log_specs']
+        labels = d['labels']
+        print('\nSamples {}, {}'.format(samples.shape, samples.dtype))
+        print('Samples max: {}, min: {}'.format(samples.max(), samples.min()))
+        print('Log specs {}, {}'.format(log_specs.shape, log_specs.dtype))
+        print('Log specs max: {}, min: {}'.format(log_specs.max(), log_specs.min()))
+        print('Log specs mean: {}, std: {}'.format(log_specs.mean(), log_specs.std()))
+        print('Labels {},{}'.format(labels.shape, labels.dtype))
+        # Samples torch.Size([16, 16000]), torch.float32
+        # Log specs torch.Size([16, 99, 161]), torch.float32
+        # Labels torch.Size([16]),torch.int64
+        break
+
+    print('\nPlot data sample')
+    print('----------------')
+    sample , log_spec, label = dset.get_random()
+    plot_log_spectrogram(log_spec, dataclass=dset.idx2class[label])
+
+
