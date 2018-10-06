@@ -45,4 +45,4 @@ for epoch in range(0, n_epochs):
         epoch_loss += loss.item()
     print('Epoch Loss: ', epoch_loss)
     checkpoints.save(model, optimizer, epoch, epoch_loss)
-    writer.add_scalars('Loss',epoch_loss ,epoch)
+    writer.add_scalars('Loss', epoch_loss, epoch)

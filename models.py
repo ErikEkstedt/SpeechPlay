@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 import datetime
 import os
+from os.path import join
 
 class CheckpointSaver(object):
     def __init__(self, root='checkpoints', run=None, model_name='CNN_speech'):
@@ -73,7 +74,7 @@ class CNN(nn.Module):
 
         x = x.view(batch_size, -1)
         x = self.head(x)
-        return F.softmax(x)
+        return F.softmax(x, dim=1)  # softmax over classes
 
 
 if __name__ == "__main__":
