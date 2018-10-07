@@ -52,6 +52,7 @@ class WordClassificationDataset(Dataset):
         self.window_size = window_size
         self.hop_len = hop_len
 
+        self.use_one_hot = False
         self.datapoints = self._datapoints()  # list of (dpath, label)
 
     def _datapoints(self):
@@ -117,9 +118,12 @@ class WordClassificationDataset(Dataset):
         log_spec = self.normalize(log_spec)  # in range [0, 1]
 
         samples = samples.astype(np.float32)
-        onehot = self.onehot(label)
+        if self.use_one_hot:
+            label = self.onehot(label)
+        else:
+            label = torch.LongTensor([label,])
         # return {'samples': samples, 'log_spec': log_spec, 'label': label}
-        return [samples, log_spec, onehot]
+        return [samples, log_spec, label]
 
 
 def collate_fn(batch):

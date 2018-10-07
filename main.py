@@ -35,8 +35,8 @@ print('Saving Checkpoints to ', checkpoints.save_dir)
 print('Using ', device)
 model = ResnetCNN(pretrained=pretrained).to(device)
 model.resnet_base.freeze()
-optimizer = optim.Adam(model.head.parameters(), lr=3e-3)
-loss_fn = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=3e-3)
+loss_fn = nn.CrossEntropyLoss()
 
 model.train()
 
