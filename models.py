@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+import torchvision
+
 import datetime
 import os
 from os.path import join
@@ -14,7 +16,9 @@ class CheckpointSaver(object):
 
         if run is None:
             now = datetime.datetime.now()
-            save_dir = os.path.join(root, now.strftime("%Y-%m-%d_%H:%M"))
+            current_time = now.strftime('%b%d_%H-%M-%S')
+            current_time = os.path.join(root, current_time)
+            save_dir = os.path.join(root, current_time)
             os.makedirs(save_dir)
         else:
             save_dir = os.path.join(root, run)
@@ -40,41 +44,47 @@ class CheckpointSaver(object):
 #  - vgg base
 #  - vgg base
 
-class CNN(nn.Module):
-    def __init__(self, input_dims=(99, 161), out_classes=30, hidden_channels=128):
-        super(CNN, self).__init__()
+class ResnetConvLayers(nn.Module):
+    def __init__(self, pretrained=True):
+        super(ResnetConvLayers, self).__init__()
 
-        self.conv0 = nn.Conv2d(in_channels=1,
-                               out_channels=hidden_channels,
-                               kernel_size=5,
-                               stride=2)
-        self.conv1 = nn.Conv2d(in_channels=hidden_channels,
-                               out_channels=hidden_channels,
-                               kernel_size=5,
-                               stride=2)
-        self.conv2 = nn.Conv2d(in_channels=hidden_channels,
-                               out_channels=hidden_channels,
-                               kernel_size=5,
-                               stride=2)
-        self.conv3 = nn.Conv2d(in_channels=hidden_channels,
-                               out_channels=hidden_channels,
-                               kernel_size=5,
-                               stride=2)
+        resnet = torchvision.models.resnet101(pretrained=pretrained) # pretrained ImageNet ResNet-101
+        modules = list(resnet.children())[:-2]
+        self.resnet = nn.Sequential(*modules)
 
-        self.head = nn.Linear(2688, out_classes)
+        self.frozen = False
 
     def forward(self, x):
-        batch_size = x.shape[0]
-        x = x.unsqueeze(1)  # create channel dimension
+        return self.resnet(x)
 
-        x = F.relu(self.conv0(x))
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+    def freeze(self):
+        if self.frozen:
+            return None
+        self.frozen = True
+        # Freeze weights
+        resnet_params = []
+        for param in self.resnet.parameters():
+            param.requires_grad = False
+            resnet_params.append(param)
+        return True
 
+
+class ResnetCNN(nn.Module):
+    def __init__(self, input_dims=(99, 161), out_classes=30, hidden_channels=128):
+        super(ResnetCNN, self).__init__()
+
+        self.resnet_base = ResnetConvLayers()  # pretrained weights
+        self.head = nn.Linear(49152, out_classes)
+
+    def forward(self, x):
+        batch_size, w, h = x.shape[0], x.shape[2], x.shape[3]
+        x = x.expand(batch_size, 3, w, h)  # create channel dimension
+
+        x = self.resnet_base(x)
+        x = torch.tanh(x)
         x = x.view(batch_size, -1)
         x = self.head(x)
-        return F.softmax(x, dim=1)  # softmax over classes
+        return torch.softmax(x, dim=1)  # softmax over classes
 
 
 if __name__ == "__main__":
@@ -83,10 +93,12 @@ if __name__ == "__main__":
     from tqdm import tqdm
 
     model = CNN()
-    dummy_batch = torch.randn((16, 99,161))
-    out = model(dummy_batch)
+    model.resnet_base.freeze()  # model.resnet_base.frozen = True
 
+    dummy_batch = torch.randn((16, 1, 99,161))
+    out = model(dummy_batch)
     print('out shape: ', out.shape)
+
     plt.matshow(out.detach().numpy())
     plt.colorbar()
     plt.show()

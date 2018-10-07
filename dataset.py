@@ -92,11 +92,23 @@ class WordClassificationDataset(Dataset):
         onehot[idx] = 1
         return onehot
 
+    def standardize(self, x):
+        return (x-x.mean()) / x.std()
+
+    def normalize(self, x):
+        x = x - x.min()
+        x /= x.max()
+        return x
+
     def __getitem__(self, idx):
         path, label = self.datapoints[idx]
         filename = os.path.abspath(path)
         sample_rate, samples = wavfile.read(filename)
         _ , _, log_spec = self.log_spectrogram(samples, sample_rate)
+
+        log_spec = self.standardize(log_spec)
+        # log_spec = self.normalize(log_spec)
+
         samples = samples.astype(np.float32)
         onehot = self.onehot(label)
         # return {'samples': samples, 'log_spec': log_spec, 'label': label}
@@ -118,6 +130,8 @@ if __name__ == "__main__":
     print('\nCreate Dataset and DataLoader')
     print('-----------------------------')
     dset = WordClassificationDataset()
+
+    samples, log_spec, label = dset.get_random()
 
     dloader = DataLoader(dset, collate_fn=collate_fn, batch_size=16, shuffle=True)
 

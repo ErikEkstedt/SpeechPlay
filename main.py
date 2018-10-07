@@ -6,14 +6,14 @@ import torch.optim as optim
 
 from dataset import WordClassificationDataset, collate_fn
 from torch.utils.data import DataLoader
-from models import CNN, CheckpointSaver
+from models import ResnetCNN, CheckpointSaver
 
 from tensorboardX import SummaryWriter
 writer = SummaryWriter()
 
 
 # HyperParameters
-batch_size = 256
+batch_size = 64
 n_epochs = 50
 num_workers = 4
 pin_memory = True
@@ -32,15 +32,18 @@ checkpoints = CheckpointSaver()
 print('Saving Checkpoints to ', checkpoints.save_dir)
 
 print('Using ', device)
-model = CNN().to(device)
+model = ResnetCNN().to(device)
 optimizer = optim.Adam(model.parameters(), lr=3e-3)
 loss_fn = nn.MSELoss()
+
+model.train()
 
 for epoch in range(0, n_epochs):
     epoch_loss = 0
     for d in tqdm(dloader, desc="Epoch {}/{}".format(epoch, n_epochs)):
         # samples = d['samples']
         log_specs = d['log_specs'].to(device)
+        log_specs = log_specs.unsqueeze(1)  # add channel dimension
         labels = d['labels'].to(device)
 
         optimizer.zero_grad()
@@ -50,7 +53,6 @@ for epoch in range(0, n_epochs):
         optimizer.step()
 
         epoch_loss += loss.item()
-
     print('Epoch Loss: ', epoch_loss)
     checkpoints.save(model, optimizer, epoch, epoch_loss)
     writer.add_scalar('Loss', epoch_loss, epoch)
