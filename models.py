@@ -4,6 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import torchvision
+from torchvision.transforms import transforms 
 
 import datetime
 import os
@@ -51,7 +52,6 @@ class ResnetConvLayers(nn.Module):
         resnet = torchvision.models.resnet101(pretrained=pretrained) # pretrained ImageNet ResNet-101
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
-
         self.frozen = False
 
     def forward(self, x):
@@ -62,25 +62,52 @@ class ResnetConvLayers(nn.Module):
             return None
         self.frozen = True
         # Freeze weights
-        resnet_params = []
         for param in self.resnet.parameters():
             param.requires_grad = False
-            resnet_params.append(param)
         return True
 
 
 class ResnetCNN(nn.Module):
-    def __init__(self, input_dims=(99, 161), out_classes=30, hidden_channels=128):
+    def __init__(self, input_dims=(99, 161), out_classes=30,
+                 hidden_channels=128, fc_hidden=512, pretrained=True):
         super(ResnetCNN, self).__init__()
 
-        self.resnet_base = ResnetConvLayers()  # pretrained weights
-        self.head = nn.Linear(49152, out_classes)
+        self.resnet_base = ResnetConvLayers(pretrained=pretrained)  # pretrained weights
+        self.head = nn.Sequential (
+            nn.Linear(49152, fc_hidden),
+            nn.ReLU(),
+            nn.Linear(fc_hidden, 256),
+            nn.ReLU(),
+            nn.Linear(256, out_classes),
+        )
+
+        # resnet preprocessing
+        self.transform = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                              std=[0.229, 0.224, 0.225])
+
+    def resnet_normalize(self, x):
+        '''resnet preprocess
+        Arguments:
+            x: torch.tensor (batch, 1, w, h) with norm values x in range [0, 1]
+        '''
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
+        # batch_size = x.shape[0]
+        r = x[:, 0]
+        g = x[:, 1]
+        b = x[:, 2]
+        r = (r - mean[0]) / std[0]
+        g = (g - mean[1]) / std[1]
+        b = (b - mean[2]) / std[2]
+        return torch.stack((r,g,b), dim=1)
+
 
     def forward(self, x):
         batch_size, w, h = x.shape[0], x.shape[2], x.shape[3]
         x = x.expand(batch_size, 3, w, h)  # create channel dimension
-
+        x = self.resnet_normalize(x)
         x = self.resnet_base(x)
+        print(x.shape)
         x = torch.tanh(x)
         x = x.view(batch_size, -1)
         x = self.head(x)
@@ -92,7 +119,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from tqdm import tqdm
 
-    model = CNN()
+    model = ResnetCNN()
+
     model.resnet_base.freeze()  # model.resnet_base.frozen = True
 
     dummy_batch = torch.randn((16, 1, 99,161))

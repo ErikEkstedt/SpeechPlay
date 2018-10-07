@@ -13,8 +13,9 @@ writer = SummaryWriter()
 
 
 # HyperParameters
+pretrained = False
 batch_size = 64
-n_epochs = 50
+n_epochs = 500
 num_workers = 4
 pin_memory = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,8 +33,9 @@ checkpoints = CheckpointSaver()
 print('Saving Checkpoints to ', checkpoints.save_dir)
 
 print('Using ', device)
-model = ResnetCNN().to(device)
-optimizer = optim.Adam(model.parameters(), lr=3e-3)
+model = ResnetCNN(pretrained=pretrained).to(device)
+model.resnet_base.freeze()
+optimizer = optim.Adam(model.head.parameters(), lr=3e-3)
 loss_fn = nn.MSELoss()
 
 model.train()

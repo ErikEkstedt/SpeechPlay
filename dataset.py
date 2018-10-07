@@ -10,6 +10,13 @@ from scipy.io import wavfile
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+# Resnet settings
+def norm(x):
+    x = x - x.min()
+    x /= x.max()
+    return x
+
+
 
 def plot_log_spectrogram(log_spec, dataclass=None, sample_rate=16000, title='Log Spectrogram'):
     fig = plt.figure(figsize=(14, 8))
@@ -107,7 +114,7 @@ class WordClassificationDataset(Dataset):
         _ , _, log_spec = self.log_spectrogram(samples, sample_rate)
 
         log_spec = self.standardize(log_spec)
-        # log_spec = self.normalize(log_spec)
+        log_spec = self.normalize(log_spec)  # in range [0, 1]
 
         samples = samples.astype(np.float32)
         onehot = self.onehot(label)
