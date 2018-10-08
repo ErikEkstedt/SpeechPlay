@@ -9,19 +9,33 @@ from tqdm import tqdm
 
 from dataset import WordClassificationDataset
 
-"""
-stride:
-    controls the stride for the cross-correlation, a single number or a tuple.
-padding:
-    controls the amount of implicit zero-paddings on both
-    sides for :attr:`padding` number of points for each dimension.
-dilation:
-    controls the spacing between the kernel points; also
-    known as the à trous algorithm. It is harder to describe, but this `link`_
-    has a nice visualization of what :attr:`dilation` does.
-groups:
-    controls the connections between inputs and outputs.
-"""
+
+# TODO: Fix nicer plot
+def plot_dummy(x, cmap='Blues'):
+    plt.figure()
+    plt.suptitle('shape: {}x{}'.format( x[0].shape[0], x[0].shape[1]))
+    plt.subplot(2,2,1)
+    plt.imshow(x[0], cmap=cmap)
+    plt.xticks([])
+    plt.subplot(2,2,2)
+    plt.imshow(x[1], cmap=cmap)
+    plt.subplot(2,2,3)
+    plt.imshow(x[2], cmap=cmap)
+    plt.subplot(2,2,4)
+    plt.imshow(x[3], cmap=cmap)
+    plt.tight_layout()
+    plt.show()
+
+
+def get_dummy_data(d=10):
+    x = np.ones((d,d))
+    x_rows = np.ones((d,d))
+    x_cols = np.ones((d,d))
+    x_rows[::2] = 0
+    x_cols[:, ::2] = 0
+    x_cross = x_rows + x_cols
+    batch = np.stack((x, x_rows, x_cols, x_cross), axis=0)
+    return batch
 
 
 def conv_output_shape(h_w, kernel_size=1, stride=1, padding=0, dilation=1):
@@ -61,44 +75,22 @@ class Conv2d(nn.Conv2d):
         return h, w
 
 
-# TODO: Fix nicer plot
-def plot_dummy(x, cmap='Blues'):
-    plt.figure()
-    plt.suptitle('shape: {}x{}'.format( x[0].shape[0], x[0].shape[1]))
-    plt.subplot(2,2,1)
-    plt.imshow(x[0], cmap=cmap)
-    plt.xticks([])
-    plt.subplot(2,2,2)
-    plt.imshow(x[1], cmap=cmap)
-    plt.subplot(2,2,3)
-    plt.imshow(x[2], cmap=cmap)
-    plt.subplot(2,2,4)
-    plt.imshow(x[3], cmap=cmap)
-    plt.tight_layout()
-    plt.show()
+def plot_spec(s):
+    if isinstance(s, torch.Tensor):
+        s = s.numpy()
+    plt.matshow(s)
+    ax = plt.gca()
+    plt.gca().invert_yaxis()
+    plt.pause(0.1)
 
-
-def get_dummy_data(d=10):
-    x = np.ones((d,d))
-    x_rows = np.ones((d,d))
-    x_cols = np.ones((d,d))
-    x_rows[::2] = 0
-    x_cols[:, ::2] = 0
-    x_cross = x_rows + x_cols
-    batch = np.stack((x, x_rows, x_cols, x_cross), axis=0)
-    return batch
-
-# Dummy Data
-np_batch = get_dummy_data()
-plot_dummy(np_batch)
-batch = torch.from_numpy(np_batch).unsqueeze(1).float()  # unsqueeze for channels
+# Dataset
+dset = WordClassificationDataset(sample=True)
 
 # Convs
-kernel_size = (5,10)
-stride = (1,1)  # 1 default
+kernel_size = (5,5)
+stride = (2,2)  # 1 default
 padding = 0  # 0 default
 dilation = 1  # 1 default
-
 # Regular
 conv = Conv2d(in_channels=1,
               out_channels=1,
@@ -106,15 +98,27 @@ conv = Conv2d(in_channels=1,
               stride=stride,
               padding=padding,
               dilation=dilation)
-conv.weight.data = torch.ones(conv.weight.data.shape)
+conv.weight.data = torch.ones(conv.weight.data.shape) * 0.5
 conv.eval()
-out_shape = conv.get_output_shape((100,100))
-print(out_shape)
-out = conv(batch)
-print('real out shape: ', out.shape)
+
+# data
+_, spec, _ = dset[1]
+s = torch.tensor(spec.T)
+plot_spec(s)
+inp = s.unsqueeze(0).unsqueeze(0)  # add channel and batch dimensions
+print('input: ', inp.shape)
+out = conv(inp)
+print('out: ', out.shape)
+plot_spec(out.squeeze().detach())
+
+
+
+
+
 plot_dummy(out.detach().squeeze(1).numpy())
 
-dset = WordClassificationDataset(audio_path='data')
+
+
 
 conv = nn.Conv1d(in_channels=1,
               out_channels=1,

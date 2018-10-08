@@ -34,7 +34,8 @@ class WordClassificationDataset(Dataset):
     def __init__(self,
                  audio_path="data/train/audio",
                  window_size=20,
-                 hop_len=10):
+                 hop_len=10,
+                 sample=False):
         super(WordClassificationDataset, self).__init__()
 
         self.audio_path = audio_path
@@ -55,16 +56,19 @@ class WordClassificationDataset(Dataset):
         self.hop_len = hop_len
 
         self.use_one_hot = False
-        self.datapoints = self._datapoints()  # list of (dpath, label)
+        if sample:
+            self.datapoints = self.samples()
+        else:
+            self.datapoints = self._datapoints()  # list of (dpath, label)
 
-    def _datapoints(self):
+    def samples(self, nfiles=3):
         paths = []
         exceptions = 0
         for i, c in enumerate(self.classes):
             self.class2idx[c] = i
             self.idx2class[i] = c
+            n = 0
             folder_path = join(self.audio_path, c)
-            # wave_paths = [f for f in os.listdir(folder_path) if f.endswith('.wav')]
             for f in os.listdir(folder_path):
                 if f.endswith('.wav'):
                     fpath = join(folder_path, f)
@@ -74,7 +78,29 @@ class WordClassificationDataset(Dataset):
                     if samples.shape[0] != 16000:
                         exceptions += 1
                         continue
+                    paths.append((fpath, i))
+                    n += 1
+                    if n == nfiles:
+                        break
+        print('Total samples: {} ({} unused)'.format(len(paths), exceptions))
+        return paths
 
+    def _datapoints(self):
+        paths = []
+        exceptions = 0
+        for i, c in enumerate(self.classes):
+            self.class2idx[c] = i
+            self.idx2class[i] = c
+            folder_path = join(self.audio_path, c)
+            for f in os.listdir(folder_path):
+                if f.endswith('.wav'):
+                    fpath = join(folder_path, f)
+
+                    # Expensive check.
+                    sample_rate, samples = wavfile.read(fpath)
+                    if samples.shape[0] != 16000:
+                        exceptions += 1
+                        continue
                     paths.append((fpath, i))
         print('Total samples: {} ({} unused)'.format(len(paths), exceptions))
         return paths
