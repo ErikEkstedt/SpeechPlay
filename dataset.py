@@ -43,7 +43,9 @@ class WordClassificationDataset(Dataset):
         self.classes.sort() 
 
         # self.classes[1:] do not include background noise (broken sounds)
-        self.classes = self.classes[1:]
+        if len(self.classes) > 1:
+            self.classes = self.classes[1:]
+
         self.num_classes = len(self.classes)
 
         self.class2idx = {}

@@ -114,13 +114,25 @@ class ResnetCNN(nn.Module):
         return torch.softmax(x, dim=1)  # softmax over classes
 
 
+class SpectroConv(nn.Module):
+
+    def __init__(self):
+        super(SpectroConv, self).__init__()
+        # input 99, 161
+
+
+    def forward(self, input_):
+        return input_
+
+
+
 if __name__ == "__main__":
     import numpy as np
     import matplotlib.pyplot as plt
     from tqdm import tqdm
 
+    # Resnet. Really bad in this setup
     model = ResnetCNN()
-
     model.resnet_base.freeze()  # model.resnet_base.frozen = True
 
     dummy_batch = torch.randn((16, 1, 99,161))
