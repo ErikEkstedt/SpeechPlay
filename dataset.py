@@ -77,6 +77,11 @@ class WordClassificationDataset(Dataset):
                     sample_rate, samples = wavfile.read(fpath)
                     if samples.shape[0] != 16000:
                         exceptions += 1
+                        print('wrong sample rate: ', exceptions)
+                        continue
+                    elif samples.mean() == 0:
+                        exceptions += 1
+                        print('zero values')
                         continue
                     paths.append((fpath, i))
                     n += 1
@@ -100,6 +105,11 @@ class WordClassificationDataset(Dataset):
                     sample_rate, samples = wavfile.read(fpath)
                     if samples.shape[0] != 16000:
                         exceptions += 1
+                        # print('wrong sample rate: ', exceptions)
+                        continue
+                    elif samples.mean() == 0:
+                        exceptions += 1
+                        # print('zero values')
                         continue
                     paths.append((fpath, i))
         print('Total samples: {} ({} unused)'.format(len(paths), exceptions))
@@ -129,7 +139,12 @@ class WordClassificationDataset(Dataset):
         return onehot
 
     def standardize(self, x):
-        return (x-x.mean()) / x.std()
+        try:
+            x = (x-x.mean()) / x.std()
+        except:
+            print('mean: ', x.mean())
+            print('std: ', x.std())
+        return x
 
     def normalize(self, x):
         x = x - x.min()
@@ -142,7 +157,7 @@ class WordClassificationDataset(Dataset):
         sample_rate, samples = wavfile.read(filename)
         _ , _, log_spec = self.log_spectrogram(samples, sample_rate)
 
-        log_spec = self.standardize(log_spec)
+        # log_spec = self.standardize(log_spec)
         log_spec = self.normalize(log_spec)  # in range [0, 1]
 
         samples = samples.astype(np.float32)
@@ -167,10 +182,19 @@ if __name__ == "__main__":
     print('\nCreate Dataset and DataLoader')
     print('-----------------------------')
     dset = WordClassificationDataset()
-
     samples, log_spec, label = dset.get_random()
-
     dloader = DataLoader(dset, collate_fn=collate_fn, batch_size=16, shuffle=True)
+
+    z = 0
+    for d in tqdm(dloader):
+        samples = d['samples']
+        log_specs = d['log_specs']
+        labels = d['labels']
+        if samples.mean() == 0:
+            z += 1
+
+    input('done')
+
 
     print('Number of datapoints: ', len(dset))
     print('Number of classes: ', dset.num_classes)

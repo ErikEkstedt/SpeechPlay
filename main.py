@@ -13,7 +13,7 @@ writer = SummaryWriter()
 
 resnet = False
 conv_batch = True
-batch_size = 64
+batch_size = 256
 n_epochs = 500
 num_workers = 4
 pin_memory = True
@@ -54,7 +54,7 @@ elif conv_batch:
                           kernels,
                           strides,
                           padding,
-                          n_mels)
+                          n_mels).to(device)
     params, trainable_params = model.total_parameters()
     print('total parameters: ', params)
     print('total trainable parameters: ', trainable_params)
@@ -72,9 +72,9 @@ for epoch in range(0, n_epochs):
         log_specs = d['log_specs'].to(device)
         log_specs = log_specs.unsqueeze(1)  # add channel dimension
         labels = d['labels'].to(device)
-        print('spec: ', log_specs.shape)
-        print('labels: ', labels.shape)
-        input()
+        # print('spec: ', log_specs.shape)
+        # print('labels: ', labels.shape)
+        # input()
 
         optimizer.zero_grad()
         out = model(log_specs)
