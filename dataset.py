@@ -171,8 +171,8 @@ def collate_fn(batch):
     samples, log_specs, labels = zip(*batch)
     samples = torch.tensor(samples)
     log_specs = torch.tensor(log_specs)
+    log_specs = log_specs.unsqueeze(1)  # add channel dimension
     labels = torch.LongTensor(labels)
-    # return samples, log_specs, labels
     return {'samples': samples, 'log_specs': log_specs, 'labels': labels}
 
 
