@@ -35,7 +35,7 @@ class WordClassificationDataset(Dataset):
                  audio_path="data/train/audio",
                  window_size=20,
                  hop_len=10,
-                 sample=False):
+                 samples=False):
         super(WordClassificationDataset, self).__init__()
 
         self.audio_path = audio_path
@@ -56,7 +56,7 @@ class WordClassificationDataset(Dataset):
         self.hop_len = hop_len
 
         self.use_one_hot = False
-        if sample:
+        if samples:
             self.datapoints = self.samples()
         else:
             self.datapoints = self._datapoints()  # list of (dpath, label)
@@ -148,8 +148,6 @@ class WordClassificationDataset(Dataset):
         samples = samples.astype(np.float32)
         if self.use_one_hot:
             label = self.onehot(label)
-        else:
-            label = torch.LongTensor([label,])
         # return {'samples': samples, 'log_spec': log_spec, 'label': label}
         return [samples, log_spec, label]
 
@@ -158,7 +156,7 @@ def collate_fn(batch):
     samples, log_specs, labels = zip(*batch)
     samples = torch.tensor(samples)
     log_specs = torch.tensor(log_specs)
-    labels = torch.tensor(labels)
+    labels = torch.LongTensor(labels)
     # return samples, log_specs, labels
     return {'samples': samples, 'log_specs': log_specs, 'labels': labels}
 

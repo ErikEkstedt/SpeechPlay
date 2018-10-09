@@ -10,6 +10,15 @@ import datetime
 import os
 from os.path import join
 
+def plot_spec(s):
+    if isinstance(s, torch.Tensor):
+        s = s.numpy()
+    plt.matshow(s.T)
+    ax = plt.gca()
+    plt.gca().invert_yaxis()
+    plt.pause(0.1)
+
+
 class CheckpointSaver(object):
     def __init__(self, root='checkpoints', run=None, model_name='CNN_speech'):
         if not os.path.exists(root):
@@ -110,34 +119,128 @@ class ResnetCNN(nn.Module):
         print(x.shape)
         x = torch.tanh(x)
         x = x.view(batch_size, -1)
-        x = self.head(x)
-        return torch.softmax(x, dim=1)  # softmax over classes
+        return self.head(x)  # Scores not probs. Using CrossEntropyLoss.
 
 
-class SpectroConv(nn.Module):
 
-    def __init__(self):
-        super(SpectroConv, self).__init__()
-        # input 99, 161
+# -----------------------------------------------------
 
+class ConvBatchNorm(nn.Module):
+    def __init__(self,
+                 n_classes=30,
+                 in_channels=1,
+                 filters=[32, 32, 64, 64, 128, 128],
+                 kernels=[3, 3, 3, 3, 3, 3],
+                 strides=[2, 2, 2, 2, 1, 1],
+                 padding=[0, 0, 0, 0, 0, 0],
+                 n_mels=128):
+        super(ConvBatchNorm, self).__init__()
+        filters = [in_channels] + filters  # add input channel
 
-    def forward(self, input_):
-        return input_
+        self.n_classes = n_classes
+        self.filters = filters
+        self.kernels = kernels
+        self.strides = strides
+        self.padding = padding
+        self.n_mels = n_mels
 
+        convs = [nn.Conv2d(in_channels=filters[i],
+                           out_channels=filters[i + 1],
+                           kernel_size=kernels[i],
+                           stride=strides[i],
+                           padding=(1, 1)) for i in range(len(filters)-1)]
+        self.convs = nn.ModuleList(convs)
+
+        # Spatial Batchnorm
+        self.bns = nn.ModuleList([nn.BatchNorm2d(num_features=filters[i]) for i
+                                  in range(1, len(filters))])
+
+        self.fc1 = nn.Linear(9856, 512)
+        self.out = nn.Linear(512, n_classes)
+
+        print('conv layers: ', len(self.convs))
+        print('bn layers: ', len(self.bns))
+        # self.conv_out_channels = self.calculate_channels(n_mels, 3, 2, 1, K)
+        # self.gru = nn.GRU(input_size=hp.ref_enc_filters[-1] * out_channels,
+        #                   hidden_size=hp.E // 2,
+        #                   batch_first=True)
+
+    def forward(self, inputs):
+        batch_size = inputs.size(0)
+        channels_in = inputs.size(1)
+        time_steps = inputs.size(2)
+        freq_bins = inputs.size(3)
+
+        x = inputs
+        for i, (conv, bn) in enumerate(zip(self.convs, self.bns)):
+            x = conv(x)
+            x = bn(x)
+            x = F.relu(x)  # [N, 128, Ty//2^K, n_mels//2^K]
+
+        x = self.fc1(x.view(batch_size, -1))
+        x = F.relu(x)
+        return self.out(x) # Pytorch nn.CrossEntropy expects scores. not probs.
+
+    def calculate_channels(self, L, kernel_size, stride, pad, n_convs):
+        for i in range(n_convs):
+            L = (L - kernel_size + 2 * pad) // stride + 1
+        return L
+
+    def total_parameters(self):
+        total_params = sum(p.numel() for p in self.parameters())
+        total_trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        return total_params, total_trainable_params
 
 
 if __name__ == "__main__":
     import numpy as np
     import matplotlib.pyplot as plt
     from tqdm import tqdm
+    from dataset import WordClassificationDataset
+
+    # Dataset returns numpy
+    dset = WordClassificationDataset(samples=True)
 
     # Resnet. Really bad in this setup
     model = ResnetCNN()
     model.resnet_base.freeze()  # model.resnet_base.frozen = True
 
-    dummy_batch = torch.randn((16, 1, 99,161))
+    # GST reference encoder
+    n_classes = 30
+    in_channels = 1
+    filters=[32, 32, 64, 64, 128, 128]
+    kernels = [3,3,3,3,3,3]
+    strides = [2,2,2,2,1,1]
+    padding = [0,0,0,0,0,0]
+    n_mels = 161
+
+    # Model. Outputs scores for classes. Probs are calculated in
+    # CrossEntropyLoss
+    model = ConvBatchNorm(n_classes,
+                          in_channels,
+                          filters,
+                          kernels,
+                          strides,
+                          padding,
+                          n_mels)
+    params, trainable_params = model.total_parameters()
+    print('total parameters: ', params)
+    print('total trainable parameters: ', trainable_params)
+
+    loss_fn = nn.CrossEntropyLoss()
+
+    samples, spec, label = dset.get_random()
+    plot_spec(spec) 
+    spec = torch.from_numpy(spec)
+    label = torch.LongTensor([label])
+
+    dummy_batch = spec.unsqueeze(0).unsqueeze(0)
+    dummy_label = label.unsqueeze(0)
+
     out = model(dummy_batch)
     print('out shape: ', out.shape)
+
+    loss = loss_fn(out, label)
 
     plt.matshow(out.detach().numpy())
     plt.colorbar()

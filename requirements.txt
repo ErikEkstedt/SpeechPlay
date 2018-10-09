@@ -5,3 +5,5 @@ tqdm
 
 ipython
 jupyter
+
+tensorboardX
