@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import torchvision
-from torchvision.transforms import transforms 
+from torchvision.transforms import transforms
 
 import datetime
 import os
@@ -22,7 +22,7 @@ def plot_spec(s):
 class CheckpointSaver(object):
     def __init__(self, root='checkpoints', run=None, model_name='CNN_speech'):
         if not os.path.exists(root):
-            os.makedirs(root) 
+            os.makedirs(root)
 
         if run is None:
             now = datetime.datetime.now()
@@ -125,6 +125,71 @@ class ResnetCNN(nn.Module):
 
 # -----------------------------------------------------
 
+class CNN_BN(nn.Module):
+    def __init__(self,
+                 input_shape=None,
+                 n_classes=30,
+                 in_channels=1,
+                 filters=[32, 32, 64, 64, 128],
+                 kernels=[3, 3, 3, 3, 3],
+                 strides=[2, 2, 2, 2, 1],
+                 padding=[0, 0, 0, 0, 0],
+                 n_mels=128,
+                 z_dim=64):
+        super(CNN_BN, self).__init__()
+        # Encoder
+        self.n_layers = len(filters)
+        self.input_shape = input_shape
+        self.n_classes = n_classes
+        self.in_channels = in_channels
+        self.filters = filters
+        self.kernels = kernels
+        self.strides = strides
+        self.padding = padding
+        self.n_mels = n_mels
+        self.z_dim = z_dim
+
+        filters = [in_channels] + filters  # add input channel (use +1)
+        cnn = [nn.Conv2d(in_channels=filters[i],
+                         out_channels=filters[i + 1],
+                         kernel_size=kernels[i],
+                         stride=strides[i],
+                         padding=padding[i] for i in range(len(filters)-1)]
+        self.cnns = nn.ModuleList(cnn)
+        self.bns = nn.ModuleList([nn.BatchNorm2d(num_features=filters[i]) for i
+                                  in range(1, len(filters))])
+
+        self.input_shape = input_shape
+        print(input_shape)
+        self.out_size = self.calculate_channels(input_shape[0], input_shape[1])
+        self.linear_out = nn.Linear()
+
+    def calculate_channels(self, W=99, H=161):
+        for i in range(self.n_layers):
+            W = (W - self.kernels[i] + 2 * self.paddding[i]) // self.strides[i] + 1
+            H = (H - self.kernels[i] + 2 * self.paddding[i]) // self.strides[i] + 1
+        return W, H
+
+    def forward(self, x):
+        batch_size = inputs.size(0)
+        channels_in = inputs.size(1)
+        time_steps = inputs.size(2)
+        freq_bins = inputs.size(3)
+
+        x = inputs
+        for i, (conv, bn) in enumerate(zip(self.cnns, self.bns)):
+            x = conv(x)
+            x = bn(x)
+            x = F.relu(x)  # [N, 128, Ty//2^K, n_mels//2^K]
+
+        x = self.fc1(x.view(batch_size, -1))
+        x = F.relu(x)
+        return self.out(x) # Pytorch nn.CrossEntropy expects scores. not probs.
+
+
+
+# -----------------------------------------------------
+
 class ConvBatchNorm(nn.Module):
     def __init__(self,
                  n_classes=30,
@@ -155,12 +220,12 @@ class ConvBatchNorm(nn.Module):
         self.bns = nn.ModuleList([nn.BatchNorm2d(num_features=filters[i]) for i
                                   in range(1, len(filters))])
 
-        self.fc1 = nn.Linear(9856, 512)
+        self.fc1 = nn.Linear(9856, 512)  # write definition to get output dims
         self.out = nn.Linear(512, n_classes)
 
         print('conv layers: ', len(self.convs))
         print('bn layers: ', len(self.bns))
-        # self.conv_out_channels = self.calculate_channels(n_mels, 3, 2, 1, K)
+        # self.nnonv_out_channels = self.calculate_channels(n_mels, 3, 2, 1, K)
         # self.gru = nn.GRU(input_size=hp.ref_enc_filters[-1] * out_channels,
         #                   hidden_size=hp.E // 2,
         #                   batch_first=True)
@@ -192,6 +257,77 @@ class ConvBatchNorm(nn.Module):
         return total_params, total_trainable_params
 
 
+# -----------------------------------------------------
+
+
+class VAE(nn.Module):
+    def __init__(self,
+                 n_classes=30,
+                 in_channels=1,
+                 filters=[32, 32, 64, 64, 128],
+                 kernels=[3, 3, 3, 3, 3],
+                 strides=[2, 2, 2, 2, 1],
+                 padding=[0, 0, 0, 0, 0],
+                 n_mels=128,
+                 z_size):
+        super(VAE, self).__init__()
+        filters = [in_channels] + filters  # add input channel
+
+        self.n_classes = n_classes
+
+        # CNN - VAE
+        self.filters = filters
+        self.kernels = kernels
+        self.strides = strides
+        self.padding = padding
+        self.n_mels = n_mels
+        self.z_size = z_size
+
+        # Encoder
+        enc_cnn = [nn.Conv2d(in_channels=filters[i],
+                           out_channels=filters[i + 1],
+                           kernel_size=kernels[i],
+                           stride=strides[i],
+                           padding=(1, 1)) for i in range(len(filters)-1)]
+        self.encoder_cnn = nn.ModuleList(enc_cnn)
+
+        # Spatial Batchnorm
+        self.encoder_bns = nn.ModuleList([nn.BatchNorm2d(num_features=filters[i]) for i
+                                  in range(1, len(filters))])
+
+        self.encoder_out = nn.Linear(self.encoder_out_size, z_size)
+        # Decoder
+        dec_cnn = [nn.Conv2d(in_channels=filters[i],
+                           out_channels=filters[i + 1],
+                           kernel_size=kernels[i],
+                           stride=strides[i],
+                           padding=(1, 1)) for i in range(len(filters)-1)]
+        self.decoder_cnn = nn.ModuleList(dec_cnn)
+
+        # Spatial Batchnorm
+        self.decoder_bns = nn.ModuleList([nn.BatchNorm2d(num_features=filters[i]) for i
+                                  in range(1, len(filters))])
+
+    # def encode(self, x):
+    #     x = self.encoder_cnn
+    #     h1 = F.relu(x)
+    #     return self.fc21(h1), self.fc22(h1)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add_(mu)
+
+    def decode(self, z):
+        h3 = F.relu(self.fc3(z))
+        return torch.sigmoid(self.fc4(h3))
+
+    def forward(self, x):
+        mu, logvar = self.encode(x.view(-1, 784))
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z), mu, logvar
+
+
 if __name__ == "__main__":
     import numpy as np
     import matplotlib.pyplot as plt
@@ -205,6 +341,42 @@ if __name__ == "__main__":
     model = ResnetCNN()
     model.resnet_base.freeze()  # model.resnet_base.frozen = True
 
+
+    # # Model. Outputs scores for classes. Probs are calculated in
+    # # CrossEntropyLoss
+    # model = ConvBatchNorm(n_classes,
+    #                       in_channels,
+    #                       filters,
+    #                       kernels,
+    #                       strides,
+    #                       padding,
+    #                       n_mels)
+    # params, trainable_params = model.total_parameters()
+    # print('total parameters: ', params)
+    # print('total trainable parameters: ', trainable_params)
+
+    # loss_fn = nn.CrossEntropyLoss()
+
+    # samples, spec, label = dset.get_random() # spec.shape 99,161
+    # plot_spec(spec)
+    # spec = torch.from_numpy(spec)
+    # label = torch.LongTensor([label])
+
+    # dummy_batch = spec.unsqueeze(0).unsqueeze(0)
+    # dummy_label = label.unsqueeze(0)
+
+    # out = model(dummy_batch)
+    # print('out shape: ', out.shape)
+
+    # loss = loss_fn(out, label)
+
+    # plt.matshow(out.detach().numpy())
+    # plt.colorbar()
+    # plt.show()
+
+    # plt.plot(out[0].detach().numpy())
+    # plt.show()
+
     # GST reference encoder
     n_classes = 30
     in_channels = 1
@@ -214,37 +386,16 @@ if __name__ == "__main__":
     padding = [0,0,0,0,0,0]
     n_mels = 161
 
-    # Model. Outputs scores for classes. Probs are calculated in
-    # CrossEntropyLoss
-    model = ConvBatchNorm(n_classes,
-                          in_channels,
-                          filters,
-                          kernels,
-                          strides,
-                          padding,
-                          n_mels)
-    params, trainable_params = model.total_parameters()
-    print('total parameters: ', params)
-    print('total trainable parameters: ', trainable_params)
+    # CNN_BN modules
 
-    loss_fn = nn.CrossEntropyLoss()
+    n_classes = 30
+    in_channels = 1
+    filters=[32, 32, 64, 64, 128]
+    kernels = [3,3,3,3,3,3]
+    strides = [2,2,2,2,1,1]
+    padding = [0,0,0,0,0,0]
+    n_mels = 161
 
-    samples, spec, label = dset.get_random()
-    plot_spec(spec) 
-    spec = torch.from_numpy(spec)
-    label = torch.LongTensor([label])
+    input_shape = (99, 161)
+    model = CNN_BN(input_shape)
 
-    dummy_batch = spec.unsqueeze(0).unsqueeze(0)
-    dummy_label = label.unsqueeze(0)
-
-    out = model(dummy_batch)
-    print('out shape: ', out.shape)
-
-    loss = loss_fn(out, label)
-
-    plt.matshow(out.detach().numpy())
-    plt.colorbar()
-    plt.show()
-
-    plt.plot(out[0].detach().numpy())
-    plt.show()
